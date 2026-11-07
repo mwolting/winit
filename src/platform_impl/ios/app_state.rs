@@ -894,6 +894,10 @@ os_capabilities! {
     #[allow(unused)] // error message unused
     force_touch_err_msg: "-[UITouch force]",
     force_touch: 9-0,
+    /// Apple Pencil hover is available starting with iPadOS 16.1.
+    #[allow(unused)]
+    pencil_hover_err_msg: "Apple Pencil hover",
+    pencil_hover: 16-1,
 }
 
 fn meets_requirements(

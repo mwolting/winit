@@ -232,6 +232,9 @@ pub enum WindowEvent {
 
     /// The cursor has moved on the window.
     ///
+    /// On iPadOS 16.1 and later, supported Apple Pencil hover produces cursor events.
+    /// The position is in physical pixels; hover distance and tilt are not exposed.
+    ///
     /// ## Platform-specific
     ///
     /// - **Web:** Doesn't take into account CSS [`border`], [`padding`], or [`transform`].

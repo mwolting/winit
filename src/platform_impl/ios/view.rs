@@ -4,12 +4,15 @@ use std::cell::{Cell, RefCell};
 use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{declare_class, msg_send, msg_send_id, mutability, sel, ClassType, DeclaredClass};
-use objc2_foundation::{CGFloat, CGPoint, CGRect, MainThreadMarker, NSObject, NSSet, NSString};
+use objc2_foundation::{
+    CGFloat, CGPoint, CGRect, MainThreadMarker, NSArray, NSNumber, NSObject, NSSet, NSString,
+};
 use objc2_ui_kit::{
     UICoordinateSpace, UIEvent, UIForceTouchCapability, UIGestureRecognizer,
-    UIGestureRecognizerDelegate, UIGestureRecognizerState, UIKeyInput, UIPanGestureRecognizer,
-    UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer, UITapGestureRecognizer,
-    UITextInputTraits, UITouch, UITouchPhase, UITouchType, UITraitEnvironment, UIView,
+    UIGestureRecognizerDelegate, UIGestureRecognizerState, UIHoverGestureRecognizer, UIKeyInput,
+    UIPanGestureRecognizer, UIPinchGestureRecognizer, UIResponder, UIRotationGestureRecognizer,
+    UITapGestureRecognizer, UITextInputTraits, UITouch, UITouchPhase, UITouchType,
+    UITraitEnvironment, UIView,
 };
 
 use super::app_state::{self, EventWrapper};
@@ -166,6 +169,24 @@ declare_class!(
         #[method(touchesCancelled:withEvent:)]
         fn touches_cancelled(&self, touches: &NSSet<UITouch>, _event: Option<&UIEvent>) {
             self.handle_touches(touches)
+        }
+
+        #[method(pencilHover:)]
+        fn pencil_hover(&self, recognizer: &UIHoverGestureRecognizer) {
+            let Some(window) = self.window() else { return };
+            // UIKit gives view-local points; winit uses physical window coordinates.
+            let location = unsafe { recognizer.locationInView(Some(self)) };
+            let position = PhysicalPosition::from_logical::<(f64, f64), f64>(
+                (location.x as _, location.y as _),
+                self.contentScaleFactor() as f64,
+            );
+            let events = pencil_hover_events(recognizer.state(), position).into_iter().map(|event| {
+                EventWrapper::StaticEvent(Event::WindowEvent {
+                    window_id: RootWindowId(window.id()),
+                    event,
+                })
+            });
+            app_state::handle_nonuser_events(MainThreadMarker::new().unwrap(), events);
         }
 
         #[method(pinchGesture:)]
@@ -353,6 +374,50 @@ declare_class!(
     }
 );
 
+fn pencil_hover_events(
+    state: UIGestureRecognizerState,
+    position: PhysicalPosition<f64>,
+) -> Vec<WindowEvent> {
+    match state {
+        UIGestureRecognizerState::Began => vec![
+            WindowEvent::CursorEntered { device_id: DEVICE_ID },
+            WindowEvent::CursorMoved { device_id: DEVICE_ID, position },
+        ],
+        UIGestureRecognizerState::Changed => {
+            vec![WindowEvent::CursorMoved { device_id: DEVICE_ID, position }]
+        },
+        UIGestureRecognizerState::Ended | UIGestureRecognizerState::Cancelled => {
+            vec![WindowEvent::CursorLeft { device_id: DEVICE_ID }]
+        },
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod hover_tests {
+    use super::*;
+
+    #[test]
+    fn maps_hover_lifecycle_to_cursor_events() {
+        let position = PhysicalPosition::new(12.0, 34.0);
+        let began = pencil_hover_events(UIGestureRecognizerState::Began, position);
+        assert!(
+            matches!(began.as_slice(), [WindowEvent::CursorEntered { .. }, WindowEvent::CursorMoved { position: p, .. }] if *p == position)
+        );
+        let changed = pencil_hover_events(UIGestureRecognizerState::Changed, position);
+        assert!(
+            matches!(changed.as_slice(), [WindowEvent::CursorMoved { position: p, .. }] if *p == position)
+        );
+        for state in [UIGestureRecognizerState::Ended, UIGestureRecognizerState::Cancelled] {
+            assert!(matches!(
+                pencil_hover_events(state, position).as_slice(),
+                [WindowEvent::CursorLeft { .. }]
+            ));
+        }
+        assert!(pencil_hover_events(UIGestureRecognizerState::Failed, position).is_empty());
+    }
+}
+
 impl WinitView {
     pub(crate) fn new(
         mtm: MainThreadMarker,
@@ -372,6 +437,22 @@ impl WinitView {
         let this: Retained<Self> = unsafe { msg_send_id![super(this), initWithFrame: frame] };
 
         this.setMultipleTouchEnabled(true);
+
+        if app_state::os_capabilities().pencil_hover {
+            // The view retains the recognizer. Restrict it to Pencil so mouse hover is not
+            // conflated with the stylus and does not generate duplicate cursor events.
+            let hover = unsafe {
+                UIHoverGestureRecognizer::initWithTarget_action(
+                    mtm.alloc(),
+                    Some(&this),
+                    Some(sel!(pencilHover:)),
+                )
+            };
+            let pencil = NSNumber::new_isize(UITouchType::Pencil.0);
+            unsafe { hover.setAllowedTouchTypes(&NSArray::from_slice(&[&*pencil])) };
+            hover.setDelegate(Some(ProtocolObject::from_ref(&*this)));
+            this.addGestureRecognizer(&hover);
+        }
 
         if let Some(scale_factor) = window_attributes.platform_specific.scale_factor {
             this.setContentScaleFactor(scale_factor as _);

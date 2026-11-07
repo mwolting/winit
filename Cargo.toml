@@ -201,6 +201,7 @@ features = [
     "UIEvent",
     "UIGeometry",
     "UIGestureRecognizer",
+    "UIHoverGestureRecognizer",
     "UITextInput",
     "UITextInputTraits",
     "UIOrientation",
