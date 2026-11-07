@@ -98,8 +98,9 @@ impl<T: 'static> EventLoopExtIOS for EventLoop<T> {
 /// Additional methods on [`Window`] that are specific to iOS.
 pub trait WindowExtIOS {
     /// Enable display-synchronized redraw events at the requested rate, or disable them.
-    /// Returns false if unavailable. The OS may select a different rate. The rate is
-    /// used when the link is first enabled; the default is disabled.
+    /// Returns false if unavailable. The OS may select a different rate. Calling this
+    /// while enabled retargets the existing link, so the rate can follow the display.
+    /// The default is disabled.
     fn set_display_link_enabled(&self, enabled: bool, preferred_fps: u32) -> bool;
     /// Sets the [`contentScaleFactor`] of the underlying [`UIWindow`] to `scale_factor`.
     ///

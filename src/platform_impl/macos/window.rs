@@ -54,6 +54,9 @@ impl Window {
                 });
             }
             if let Some(link) = slot.as_ref() {
+                if enabled {
+                    link.set_preferred_frame_rate(preferred_fps);
+                }
                 link.set_paused(!enabled);
                 true
             } else {

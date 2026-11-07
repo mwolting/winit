@@ -30,6 +30,19 @@ declare_class!(
 
 pub(crate) struct DisplayLink(Retained<CADisplayLink>);
 
+/// The OS clamps the range to what the current display can do.
+fn set_frame_rate_range(link: &CADisplayLink, preferred_fps: u32) {
+    let preferred = preferred_fps.max(1) as f32;
+    // SAFETY: a plain value, set on the main thread like the rest of the link.
+    unsafe {
+        link.setPreferredFrameRateRange(CAFrameRateRange {
+            minimum: 1.0,
+            maximum: preferred,
+            preferred,
+        })
+    }
+}
+
 impl DisplayLink {
     /// `source` is an NSWindow on macOS; iOS creates its link via CADisplayLink.
     pub(crate) fn new(
@@ -62,14 +75,9 @@ impl DisplayLink {
         if !supports_range {
             return None;
         }
-        let preferred = preferred_fps.max(1) as f32;
+        set_frame_rate_range(&link, preferred_fps);
         // SAFETY: created and used on the main thread, with a selector implemented above.
         unsafe {
-            link.setPreferredFrameRateRange(CAFrameRateRange {
-                minimum: 1.0,
-                maximum: preferred,
-                preferred,
-            });
             link.addToRunLoop_forMode(&NSRunLoop::currentRunLoop(), NSRunLoopCommonModes);
         }
         Some(Self(link))
@@ -77,6 +85,14 @@ impl DisplayLink {
 
     pub(crate) fn set_paused(&self, paused: bool) {
         unsafe { self.0.setPaused(paused) }
+    }
+
+    /// Retarget the link, e.g. after the window moved to another display.
+    ///
+    /// New returns None when the OS lacks the frame-rate-range API, so an
+    /// existing link always supports the setter.
+    pub(crate) fn set_preferred_frame_rate(&self, preferred_fps: u32) {
+        set_frame_rate_range(&self.0, preferred_fps);
     }
 }
 
