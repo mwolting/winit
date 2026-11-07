@@ -394,6 +394,26 @@ fn pencil_hover_events(
     }
 }
 
+/// Pointer events for a Pencil touch, which is the only touch type that also
+/// drives the cursor: fingers never hover, so they leave the pointer alone.
+fn pencil_pointer_event(
+    touch_type: UITouchType,
+    phase: TouchPhase,
+    position: PhysicalPosition<f64>,
+) -> Option<WindowEvent> {
+    if touch_type != UITouchType::Pencil {
+        return None;
+    }
+    Some(match phase {
+        TouchPhase::Started | TouchPhase::Moved => {
+            WindowEvent::CursorMoved { device_id: DEVICE_ID, position }
+        }
+        TouchPhase::Ended | TouchPhase::Cancelled => {
+            WindowEvent::CursorLeft { device_id: DEVICE_ID }
+        }
+    })
+}
+
 #[cfg(test)]
 mod hover_tests {
     use super::*;
@@ -416,6 +436,31 @@ mod hover_tests {
             ));
         }
         assert!(pencil_hover_events(UIGestureRecognizerState::Failed, position).is_empty());
+    }
+
+    #[test]
+    fn pencil_touches_track_the_pointer_and_fingers_do_not() {
+        let position = PhysicalPosition::new(12.0, 34.0);
+        for phase in [TouchPhase::Started, TouchPhase::Moved] {
+            assert!(matches!(
+                pencil_pointer_event(UITouchType::Pencil, phase, position),
+                Some(WindowEvent::CursorMoved { position: p, .. }) if p == position
+            ));
+        }
+        for phase in [TouchPhase::Ended, TouchPhase::Cancelled] {
+            assert!(matches!(
+                pencil_pointer_event(UITouchType::Pencil, phase, position),
+                Some(WindowEvent::CursorLeft { .. })
+            ));
+        }
+        for phase in [
+            TouchPhase::Started,
+            TouchPhase::Moved,
+            TouchPhase::Ended,
+            TouchPhase::Cancelled,
+        ] {
+            assert!(pencil_pointer_event(UITouchType::Direct, phase, position).is_none());
+        }
     }
 }
 
@@ -607,6 +652,16 @@ impl WinitView {
                     scale_factor as f64,
                 )
             };
+            // A Pencil is a pointer: UIKit stops reporting hover while it touches the
+            // screen, so follow the tip through the touch itself. Otherwise the hover
+            // position freezes where the pencil landed and the highlight stays there
+            // for the whole drag.
+            if let Some(event) = pencil_pointer_event(touch_type, phase, physical_location) {
+                touch_events.push(EventWrapper::StaticEvent(Event::WindowEvent {
+                    window_id: RootWindowId(window.id()),
+                    event,
+                }));
+            }
             touch_events.push(EventWrapper::StaticEvent(Event::WindowEvent {
                 window_id: RootWindowId(window.id()),
                 event: WindowEvent::Touch(Touch {
