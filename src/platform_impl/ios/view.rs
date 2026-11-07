@@ -72,15 +72,6 @@ declare_class!(
 
             let window = self.window().unwrap();
             let window_bounds = window.bounds();
-            let screen = window.screen();
-            let screen_space = screen.coordinateSpace();
-            let screen_frame = self.convertRect_toCoordinateSpace(window_bounds, &screen_space);
-            let scale_factor = screen.scale();
-            let size = crate::dpi::LogicalSize {
-                width: screen_frame.size.width as f64,
-                height: screen_frame.size.height as f64,
-            }
-            .to_physical(scale_factor as f64);
 
             // If the app is started in landscape, the view frame and window bounds can be mismatched.
             // The view frame will be in portrait and the window bounds in landscape. So apply the
@@ -89,6 +80,16 @@ declare_class!(
             if view_frame != window_bounds {
                 self.setFrame(window_bounds);
             }
+
+            // Report the view, not the safe area: this is the rect the drawing surface
+            // covers and the space pointer positions are measured in.
+            let screen_space = window.screen().coordinateSpace();
+            let content = self.convertRect_toCoordinateSpace(self.bounds(), &screen_space);
+            let size = crate::dpi::LogicalSize {
+                width: content.size.width as f64,
+                height: content.size.height as f64,
+            }
+            .to_physical(self.contentScaleFactor() as f64);
 
             app_state::handle_nonuser_event(
                 mtm,

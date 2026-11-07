@@ -10,8 +10,8 @@ use objc2_foundation::{
     CGFloat, CGPoint, CGRect, CGSize, MainThreadBound, MainThreadMarker, NSObjectProtocol,
 };
 use objc2_ui_kit::{
-    UIApplication, UICoordinateSpace, UIResponder, UIScreen, UIScreenOverscanCompensation,
-    UIViewController, UIWindow,
+    UICoordinateSpace, UIResponder, UIScreen, UIScreenOverscanCompensation, UIViewController,
+    UIWindow,
 };
 use tracing::{debug, warn};
 
@@ -158,9 +158,9 @@ impl Inner {
     pub fn pre_present_notify(&self) {}
 
     pub fn inner_position(&self) -> Result<PhysicalPosition<i32>, NotSupportedError> {
-        let safe_area = self.safe_area_screen_space();
+        let content = self.content_screen_space();
         let position =
-            LogicalPosition { x: safe_area.origin.x as f64, y: safe_area.origin.y as f64 };
+            LogicalPosition { x: content.origin.x as f64, y: content.origin.y as f64 };
         let scale_factor = self.scale_factor();
         Ok(position.to_physical(scale_factor))
     }
@@ -187,10 +187,10 @@ impl Inner {
 
     pub fn inner_size(&self) -> PhysicalSize<u32> {
         let scale_factor = self.scale_factor();
-        let safe_area = self.safe_area_screen_space();
+        let content = self.content_screen_space();
         let size = LogicalSize {
-            width: safe_area.size.width as f64,
-            height: safe_area.size.height as f64,
+            width: content.size.width as f64,
+            height: content.size.height as f64,
         };
         size.to_physical(scale_factor)
     }
@@ -709,41 +709,17 @@ impl Inner {
         self.window.convertRect_fromCoordinateSpace(rect, &screen_space)
     }
 
-    fn safe_area_screen_space(&self) -> CGRect {
-        let bounds = self.window.bounds();
-        if app_state::os_capabilities().safe_area {
-            let safe_area = self.window.safeAreaInsets();
-            let safe_bounds = CGRect {
-                origin: CGPoint {
-                    x: bounds.origin.x + safe_area.left,
-                    y: bounds.origin.y + safe_area.top,
-                },
-                size: CGSize {
-                    width: bounds.size.width - safe_area.left - safe_area.right,
-                    height: bounds.size.height - safe_area.top - safe_area.bottom,
-                },
-            };
-            self.rect_to_screen_space(safe_bounds)
-        } else {
-            let screen_frame = self.rect_to_screen_space(bounds);
-            let status_bar_frame = {
-                let app = UIApplication::sharedApplication(MainThreadMarker::new().unwrap());
-                #[allow(deprecated)]
-                app.statusBarFrame()
-            };
-            let (y, height) = if screen_frame.origin.y > status_bar_frame.size.height {
-                (screen_frame.origin.y, screen_frame.size.height)
-            } else {
-                let y = status_bar_frame.size.height;
-                let height = screen_frame.size.height
-                    - (status_bar_frame.size.height - screen_frame.origin.y);
-                (y, height)
-            };
-            CGRect {
-                origin: CGPoint { x: screen_frame.origin.x, y },
-                size: CGSize { width: screen_frame.size.width, height },
-            }
-        }
+    /// The drawing surface's rect in screen space: the whole view.
+    ///
+    /// This is deliberately not the safe area. The Metal/GL layer covers the
+    /// view, and UIKit reports cursor, hover and touch positions in view
+    /// coordinates, so the size the app is told about has to describe the same
+    /// rectangle. Reporting the safe area instead made pointers land off by the
+    /// inset (24pt at the top on an iPad) and squashed the surface to a smaller
+    /// drawable that Metal then stretched over the view.
+    fn content_screen_space(&self) -> CGRect {
+        let screen_space = self.window.screen().coordinateSpace();
+        self.view.convertRect_toCoordinateSpace(self.view.bounds(), &screen_space)
     }
 }
 
