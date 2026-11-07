@@ -4,6 +4,9 @@ use objc2::rc::{autoreleasepool, Retained};
 use objc2::{declare_class, mutability, ClassType, DeclaredClass};
 use objc2_app_kit::{NSResponder, NSWindow};
 use objc2_foundation::{MainThreadBound, MainThreadMarker, NSObject};
+use std::cell::RefCell;
+
+use crate::platform_impl::apple_display_link::DisplayLink;
 
 use super::event_loop::ActiveEventLoop;
 use super::window_delegate::WindowDelegate;
@@ -14,6 +17,7 @@ pub(crate) struct Window {
     window: MainThreadBound<Retained<WinitWindow>>,
     /// The window only keeps a weak reference to this, so we must keep it around here.
     delegate: MainThreadBound<Retained<WindowDelegate>>,
+    display_link: MainThreadBound<RefCell<Option<DisplayLink>>>,
 }
 
 impl Drop for Window {
@@ -34,6 +38,27 @@ impl Window {
         Ok(Window {
             window: MainThreadBound::new(delegate.window().retain(), mtm),
             delegate: MainThreadBound::new(delegate, mtm),
+            display_link: MainThreadBound::new(RefCell::new(None), mtm),
+        })
+    }
+
+    pub(crate) fn set_display_link_enabled(&self, enabled: bool, preferred_fps: u32) -> bool {
+        self.display_link.get_on_main(|slot| {
+            let mut slot = slot.borrow_mut();
+            if enabled && slot.is_none() {
+                let mtm = MainThreadMarker::new().unwrap();
+                let delegate = self.delegate.get(mtm).clone();
+                let callback_delegate = delegate.clone();
+                *slot = DisplayLink::new(mtm, delegate.window(), preferred_fps, move || {
+                    callback_delegate.request_redraw()
+                });
+            }
+            if let Some(link) = slot.as_ref() {
+                link.set_paused(!enabled);
+                true
+            } else {
+                false
+            }
         })
     }
 

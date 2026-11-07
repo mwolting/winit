@@ -1,6 +1,9 @@
 use crate::monitor::{MonitorHandle as RootMonitorHandle, VideoModeHandle as RootVideoModeHandle};
 use crate::window::Fullscreen as RootFullscreen;
 
+#[cfg(any(ios_platform, macos_platform))]
+pub(crate) mod apple_display_link;
+
 #[cfg(android_platform)]
 mod android;
 #[cfg(ios_platform)]

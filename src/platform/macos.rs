@@ -93,6 +93,12 @@ use crate::window::{Window, WindowAttributes};
 
 /// Additional methods on [`Window`] that are specific to MacOS.
 pub trait WindowExtMacOS {
+    /// Enable display-synchronized redraw events at the requested rate, or disable them.
+    /// Returns false if unavailable. The OS may select a different rate. The rate is
+    /// used when the link is first enabled; the default is disabled.
+    fn set_display_link_enabled(&self, _enabled: bool, _preferred_fps: u32) -> bool {
+        false
+    }
     /// Returns whether or not the window is in simple fullscreen mode.
     fn simple_fullscreen(&self) -> bool;
 
@@ -173,6 +179,9 @@ pub trait WindowExtMacOS {
 }
 
 impl WindowExtMacOS for Window {
+    fn set_display_link_enabled(&self, enabled: bool, preferred_fps: u32) -> bool {
+        self.window.set_display_link_enabled(enabled, preferred_fps)
+    }
     #[inline]
     fn simple_fullscreen(&self) -> bool {
         self.window.maybe_wait_on_main(|w| w.simple_fullscreen())

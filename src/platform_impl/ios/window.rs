@@ -1,5 +1,6 @@
 #![allow(clippy::unnecessary_cast)]
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 
 use objc2::rc::Retained;
@@ -111,6 +112,7 @@ pub struct Inner {
     view_controller: Retained<WinitViewController>,
     view: Retained<WinitView>,
     gl_or_metal_backed: bool,
+    display_link: RefCell<Option<crate::platform_impl::apple_display_link::DisplayLink>>,
 }
 
 impl Inner {
@@ -560,7 +562,13 @@ impl Window {
             );
         }
 
-        let inner = Inner { window, view_controller, view, gl_or_metal_backed };
+        let inner = Inner {
+            window,
+            view_controller,
+            view,
+            gl_or_metal_backed,
+            display_link: RefCell::new(None),
+        };
         Ok(Window { inner: MainThreadBound::new(inner, mtm) })
     }
 
@@ -596,6 +604,35 @@ impl Window {
 
 // WindowExtIOS
 impl Inner {
+    pub fn set_display_link_enabled(&self, enabled: bool, preferred_fps: u32) -> bool {
+        let mut slot = self.display_link.borrow_mut();
+        if enabled && slot.is_none() {
+            let mtm = MainThreadMarker::new().unwrap();
+            let window_id = RootWindowId(self.window.id());
+            *slot = crate::platform_impl::apple_display_link::DisplayLink::new(
+                mtm,
+                &self.window,
+                preferred_fps,
+                move || {
+                    let mtm = MainThreadMarker::new().unwrap();
+                    app_state::handle_nonuser_event(
+                        mtm,
+                        EventWrapper::StaticEvent(Event::WindowEvent {
+                            window_id,
+                            event: WindowEvent::RedrawRequested,
+                        }),
+                    );
+                },
+            );
+        }
+        if let Some(link) = slot.as_ref() {
+            link.set_paused(!enabled);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn set_scale_factor(&self, scale_factor: f64) {
         assert!(
             dpi::validate_scale_factor(scale_factor),
